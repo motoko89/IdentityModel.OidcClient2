@@ -59,29 +59,34 @@ namespace IdentityModel.OidcClient
         /// Starts a login.
         /// </summary>
         /// <param name="request">The login request.</param>
+        /// <param name="cancellationToken">A token that can be used to cancel the request</param>
         /// <returns></returns>
-        public virtual async Task<LoginResult> LoginAsync(LoginRequest request)
+        public virtual async Task<LoginResult> LoginAsync(LoginRequest request = null, CancellationToken cancellationToken = default)
         {
             _logger.LogTrace("LoginAsync");
             _logger.LogInformation("Starting authentication request.");
 
-            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (request == null) request = new LoginRequest();
 
-            await EnsureConfigurationAsync();
+            await EnsureConfigurationAsync(cancellationToken);
 
             var authorizeResult = await _authorizeClient.AuthorizeAsync(new AuthorizeRequest
             {
                 DisplayMode = request.BrowserDisplayMode,
                 Timeout = request.BrowserTimeout,
                 ExtraParameters = request.FrontChannelExtraParameters
-            });
+            }, cancellationToken);
             
             if (authorizeResult.IsError)
             {
                 return new LoginResult(authorizeResult.Error);
             }
 
-            var result = await ProcessResponseAsync(authorizeResult.Data, authorizeResult.State, request.BackChannelExtraParameters);
+            var result = await ProcessResponseAsync(
+                authorizeResult.Data,
+                authorizeResult.State,
+                request.BackChannelExtraParameters,
+                cancellationToken);
 
             if (!result.IsError)
             {
@@ -95,10 +100,11 @@ namespace IdentityModel.OidcClient
         /// Creates a logout URL.
         /// </summary>
         /// <param name="request">The logout request.</param>
+        /// /// <param name="cancellationToken">A token that can be used to cancel the request</param>
         /// <returns></returns>
-        public virtual async Task<string> PrepareLogoutAsync(LogoutRequest request = default)
+        public virtual async Task<string> PrepareLogoutAsync(LogoutRequest request = default, CancellationToken cancellationToken = default)
         {
-            await EnsureConfigurationAsync();
+            await EnsureConfigurationAsync(cancellationToken);
 
             var endpoint = Options.ProviderInformation.EndSessionEndpoint;
             if (endpoint.IsMissing())
@@ -113,12 +119,15 @@ namespace IdentityModel.OidcClient
         /// Starts a logout.
         /// </summary>
         /// <param name="request">The logout request.</param>
+        /// <param name="cancellationToken">A token that can be used to cancel the request</param>
         /// <returns></returns>
-        public virtual async Task<LogoutResult> LogoutAsync(LogoutRequest request = default)
+        public virtual async Task<LogoutResult> LogoutAsync(LogoutRequest request = null, CancellationToken cancellationToken = default)
         {
-            await EnsureConfigurationAsync();
+            if (request == null) request = new LogoutRequest();
 
-            var result = await _authorizeClient.EndSessionAsync(request);
+            await EnsureConfigurationAsync(cancellationToken);
+
+            var result = await _authorizeClient.EndSessionAsync(request, cancellationToken);
 
             if (result.ResultType != Browser.BrowserResultType.Success)
             {
@@ -140,12 +149,13 @@ namespace IdentityModel.OidcClient
         /// Prepares the login request.
         /// </summary>
         /// <param name="extraParameters">extra parameters to send to the authorize endpoint.</param>
+        /// /// <param name="cancellationToken">A token that can be used to cancel the request</param>
         /// <returns>State for initiating the authorize request and processing the response</returns>
-        public virtual async Task<AuthorizeState> PrepareLoginAsync(IDictionary<string, string> extraParameters = null)
+        public virtual async Task<AuthorizeState> PrepareLoginAsync(IDictionary<string, string> extraParameters = null, CancellationToken cancellationToken = default)
         {
             _logger.LogTrace("PrepareLoginAsync");
 
-            await EnsureConfigurationAsync();
+            await EnsureConfigurationAsync(cancellationToken);
             return _authorizeClient.CreateAuthorizeState(extraParameters);
         }
 
@@ -155,15 +165,16 @@ namespace IdentityModel.OidcClient
         /// <param name="data">The response data.</param>
         /// <param name="state">The state.</param>
         /// <param name="extraParameters">The extra parameters.</param>
+        /// /// <param name="cancellationToken">A token that can be used to cancel the request</param>
         /// <returns>
         /// Result of the login response validation
         /// </returns>
-        public virtual async Task<LoginResult> ProcessResponseAsync(string data, AuthorizeState state, IDictionary<string, string> extraParameters = null)
+        public virtual async Task<LoginResult> ProcessResponseAsync(string data, AuthorizeState state, IDictionary<string, string> extraParameters = null, CancellationToken cancellationToken = default)
         {
             _logger.LogTrace("ProcessResponseAsync");
             _logger.LogInformation("Processing response.");
 
-            await EnsureConfigurationAsync();
+            await EnsureConfigurationAsync(cancellationToken);
 
             _logger.LogDebug("Authorize response: {response}", data);
             var authorizeResponse = new AuthorizeResponse(data);
@@ -174,7 +185,7 @@ namespace IdentityModel.OidcClient
                 return new LoginResult(authorizeResponse.Error);
             }
 
-            var result = await _processor.ProcessResponseAsync(authorizeResponse, state, extraParameters);
+            var result = await _processor.ProcessResponseAsync(authorizeResponse, state, extraParameters, cancellationToken);
             if (result.IsError)
             {
                 _logger.LogError(result.Error);
@@ -184,7 +195,7 @@ namespace IdentityModel.OidcClient
             var userInfoClaims = Enumerable.Empty<Claim>();
             if (Options.LoadProfile)
             {
-                var userInfoResult = await GetUserInfoAsync(result.TokenResponse.AccessToken);
+                var userInfoResult = await GetUserInfoAsync(result.TokenResponse.AccessToken, cancellationToken);
                 if (userInfoResult.IsError)
                 {
                     var error = $"Error contacting userinfo endpoint: {userInfoResult.Error}";
@@ -222,7 +233,8 @@ namespace IdentityModel.OidcClient
                 RefreshToken = result.TokenResponse.RefreshToken,
                 AccessTokenExpiration = DateTime.Now.AddSeconds(result.TokenResponse.ExpiresIn),
                 IdentityToken = result.TokenResponse.IdentityToken,
-                AuthenticationTime = DateTime.Now
+                AuthenticationTime = DateTime.Now,
+                TokenResponse = result.TokenResponse // In some cases there is additional custom response data that clients need access to
             };
 
             if (loginResult.RefreshToken.IsPresent())
@@ -251,7 +263,7 @@ namespace IdentityModel.OidcClient
         {
             _logger.LogTrace("GetUserInfoAsync");
 
-            await EnsureConfigurationAsync();
+            await EnsureConfigurationAsync(cancellationToken);
             if (accessToken.IsMissing()) throw new ArgumentNullException(nameof(accessToken));
             if (!Options.ProviderInformation.SupportsUserInfo) throw new InvalidOperationException("No userinfo endpoint specified");
 
@@ -290,7 +302,7 @@ namespace IdentityModel.OidcClient
         {
             _logger.LogTrace("RefreshTokenAsync");
 
-            await EnsureConfigurationAsync();
+            await EnsureConfigurationAsync(cancellationToken);
             var client = Options.CreateClient();
             
             var response = await client.RequestRefreshTokenAsync(new RefreshTokenRequest
@@ -309,7 +321,8 @@ namespace IdentityModel.OidcClient
             }
 
             // validate token response
-            var validationResult = await _processor.ValidateTokenResponseAsync(response, null, requireIdentityToken: Options.Policy.RequireIdentityTokenOnRefreshTokenResponse);
+            var validationResult = await _processor.ValidateTokenResponseAsync(response, null, requireIdentityToken: Options.Policy.RequireIdentityTokenOnRefreshTokenResponse,
+                cancellationToken: cancellationToken);
             if (validationResult.IsError)
             {
                 return new RefreshTokenResult { Error = validationResult.Error };
@@ -325,7 +338,7 @@ namespace IdentityModel.OidcClient
             };
         }
 
-        internal async Task EnsureConfigurationAsync()
+        internal async Task EnsureConfigurationAsync(CancellationToken cancellationToken)
         {
             if (Options.Flow == OidcClientOptions.AuthenticationFlow.Hybrid && Options.Policy.RequireIdentityTokenSignature == false)
             {
@@ -335,13 +348,13 @@ namespace IdentityModel.OidcClient
                 throw new InvalidOperationException(error);
             }
 
-            await EnsureProviderInformationAsync();
+            await EnsureProviderInformationAsync(cancellationToken);
 
             _logger.LogTrace("Effective options:");
             _logger.LogTrace(LogSerializer.Serialize(Options));
         }
 
-        internal async Task EnsureProviderInformationAsync()
+        internal async Task EnsureProviderInformationAsync(CancellationToken cancellationToken)
         {
             _logger.LogTrace("EnsureProviderInformation");
 
@@ -363,7 +376,7 @@ namespace IdentityModel.OidcClient
                 {
                     Address = Options.Authority,
                     Policy = Options.Policy.Discovery
-                }).ConfigureAwait(false);
+                }, cancellationToken).ConfigureAwait(false);
                
                 if (disco.IsError)
                 {
@@ -431,7 +444,7 @@ namespace IdentityModel.OidcClient
         {
             _logger.LogTrace("ProcessClaims");
 
-            var combinedClaims = new HashSet<Claim>(new ClaimComparer(compareValueAndTypeOnly: true));
+            var combinedClaims = new HashSet<Claim>(new ClaimComparer(new ClaimComparer.Options { IgnoreIssuer = true }));
 
             user.Claims.ToList().ForEach(c => combinedClaims.Add(c));
             userInfoClaims.ToList().ForEach(c => combinedClaims.Add(c));

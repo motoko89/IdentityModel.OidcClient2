@@ -1,10 +1,15 @@
-﻿using IdentityModel.Client;
+﻿// Copyright (c) Brock Allen & Dominick Baier. All rights reserved.
+// Licensed under the Apache License, Version 2.0. See LICENSE in the project root for license information.
+
+
+using IdentityModel.Client;
 using IdentityModel.OidcClient.Browser;
 using IdentityModel.OidcClient.Infrastructure;
 using IdentityModel.OidcClient.Results;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace IdentityModel.OidcClient
@@ -26,7 +31,7 @@ namespace IdentityModel.OidcClient
             _crypto = new CryptoHelper(options);
         }
 
-        public async Task<AuthorizeResult> AuthorizeAsync(AuthorizeRequest request)
+        public async Task<AuthorizeResult> AuthorizeAsync(AuthorizeRequest request, CancellationToken cancellationToken = default)
         {
             _logger.LogTrace("AuthorizeAsync");
 
@@ -55,7 +60,7 @@ namespace IdentityModel.OidcClient
                 browserOptions.ResponseMode = OidcClientOptions.AuthorizeResponseMode.Redirect;
             }
 
-            var browserResult = await _options.Browser.InvokeAsync(browserOptions);
+            var browserResult = await _options.Browser.InvokeAsync(browserOptions, cancellationToken);
 
             if (browserResult.ResultType == BrowserResultType.Success)
             {
@@ -67,7 +72,7 @@ namespace IdentityModel.OidcClient
             return result;
         }
 
-        public async Task<BrowserResult> EndSessionAsync(LogoutRequest request)
+        public async Task<BrowserResult> EndSessionAsync(LogoutRequest request, CancellationToken cancellationToken = default)
         {
             var endpoint = _options.ProviderInformation.EndSessionEndpoint;
             if (endpoint.IsMissing())
@@ -84,7 +89,7 @@ namespace IdentityModel.OidcClient
                 ResponseMode = _options.ResponseMode
             };
 
-            return await _options.Browser.InvokeAsync(browserOptions);
+            return await _options.Browser.InvokeAsync(browserOptions, cancellationToken);
         }
 
         public AuthorizeState CreateAuthorizeState(IDictionary<string, string> extraParameters = default)
