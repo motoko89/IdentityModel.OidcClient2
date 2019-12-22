@@ -215,12 +215,15 @@ namespace IdentityModel.OidcClient
                     return new LoginResult(error);
                 }
 
-                if (!string.Equals(userInfoSub.Value, result.User.FindFirst(JwtClaimTypes.Subject).Value))
+                if (result.TokenResponse.IdentityToken != null)
                 {
-                    var error = "sub claim from userinfo endpoint is different than sub claim from identity token.";
-                    _logger.LogError(error);
+                    if (!string.Equals(userInfoSub.Value, result.User.FindFirst(JwtClaimTypes.Subject).Value))
+                    {
+                        var error = "sub claim from userinfo endpoint is different than sub claim from identity token.";
+                        _logger.LogError(error);
 
-                    return new LoginResult(error);
+                        return new LoginResult(error);
+                    }
                 }
             }
 
@@ -340,14 +343,6 @@ namespace IdentityModel.OidcClient
 
         internal async Task EnsureConfigurationAsync(CancellationToken cancellationToken)
         {
-            if (Options.Flow == OidcClientOptions.AuthenticationFlow.Hybrid && Options.Policy.RequireIdentityTokenSignature == false)
-            {
-                var error = "Allowing unsigned identity tokens is not allowed for hybrid flow";
-                _logger.LogError(error);
-
-                throw new InvalidOperationException(error);
-            }
-
             await EnsureProviderInformationAsync(cancellationToken);
 
             _logger.LogTrace("Effective options:");
